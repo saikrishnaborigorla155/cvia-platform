@@ -16,7 +16,8 @@ import {
   Button, Card, CardHeader, CardBody, DemoBanner,
   SectionHeader, Badge, RiskBadge, MetricCard, HashDisplay
 } from '../components/ui/index';
-import type { StageStatus, VerificationStage } from '../types/cvia';
+import type { StageStatus, VerificationStage, VerificationRun } from '../types/cvia';
+import type { StoredVerification } from '../server/types';
 import type { FileAnalysisResult } from '../services/fileHasher';
 import {
   analyzeInputFile, formatFileSize
@@ -107,6 +108,31 @@ export function Verify() {
     setDbState(getLocalDatabase());
   };
 
+  const syncToContext = useCallback((v: StoredVerification) => {
+    const mappedRun: VerificationRun = {
+      ...demoVerificationRun,
+      verificationId: v.verificationId,
+      startedAt: v.createdAt,
+      completedAt: v.updatedAt,
+      status: v.status as any,
+      integrityResult: {
+        ...demoVerificationRun.integrityResult!,
+        overallScore: v.integrityHealth,
+        overallRisk: v.integrityHealth >= 80 ? 'LOW' : (v.integrityHealth >= 60 ? 'MEDIUM' : 'CRITICAL'),
+        decision: v.decision as any,
+        timestamp: v.updatedAt,
+      },
+      dataset: demoVerificationRun.dataset ? {
+        ...demoVerificationRun.dataset,
+        totalSamples: v.totalFiles,
+        validSamples: v.verifiedCleanFiles,
+        suspiciousSamples: v.exactDuplicates + v.nearDuplicates + v.malfunctionData,
+      } : undefined,
+      findings: v.findingsData && v.findingsData.length > 0 ? (v.findingsData as any) : demoVerificationRun.findings,
+    };
+    setVerification(mappedRun);
+  }, [setVerification]);
+
   // Fetch persistent stored verification for the authenticated operator
   const loadStoredVerification = useCallback(async () => {
     setIsLoadingLatest(true);
@@ -126,6 +152,7 @@ export function Verify() {
           auditedAt: latest.updatedAt,
           flaggedItems: latest.flaggedItems,
         });
+        syncToContext(latest);
       } else {
         // Operator has no prior verifications: calculate clean initial state
         const initialReport = auditAllDatabaseAssets();
@@ -137,7 +164,7 @@ export function Verify() {
     } finally {
       setIsLoadingLatest(false);
     }
-  }, []);
+  }, [syncToContext]);
 
   useEffect(() => {
     loadStoredVerification();
@@ -173,6 +200,7 @@ export function Verify() {
           auditedAt: newVer.updatedAt,
           flaggedItems: newVer.flaggedItems,
         });
+        syncToContext(newVer);
         refreshDb();
       }
     } catch (err: any) {
@@ -337,7 +365,7 @@ export function Verify() {
     try {
       const newVer = await createVerificationRunApi();
       if (newVer) {
-        setVerification(demoVerificationRun);
+        syncToContext(newVer);
         setAuditReport({
           totalFiles: newVer.totalFiles,
           totalExactDuplicates: newVer.exactDuplicates,
@@ -360,7 +388,7 @@ export function Verify() {
 
     setRunning(false);
     setComplete(true);
-  }, [setVerification]);
+  }, [setVerification, syncToContext]);
 
   // Simulated visual canvas for duplicate/near-duplicate image rendering
   const renderSimulatedImage = (title: string, tag: string, color: string, customImgUrl?: string) => (

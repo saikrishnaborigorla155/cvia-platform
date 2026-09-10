@@ -11,6 +11,8 @@ import type {
 import { demoVerificationRun, demoAuditTrail } from '../data/demoData';
 import type { StoredDatabaseAsset } from '../services/cviaDatabase';
 import { initializeDatabase, subscribeToAssetChanges } from '../services/cviaDatabase';
+import { AuthContext } from './AuthContext';
+import { fetchLatestVerificationApi } from '../lib/api/verificationApi';
 
 // --- ACTION TYPES ---
 
@@ -287,6 +289,51 @@ const CVIAContext = createContext<CVIAContextValue | null>(null);
 
 export function AssuranceProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+
+  const auth = useContext(AuthContext);
+  const user = auth?.user;
+
+  // Sync active verification whenever user changes or on mount
+  useEffect(() => {
+    let isMounted = true;
+    async function syncActiveVerification() {
+      try {
+        const latest = await fetchLatestVerificationApi();
+        if (!isMounted) return;
+        if (latest) {
+          const mappedRun: VerificationRun = {
+            ...demoVerificationRun,
+            verificationId: latest.verificationId,
+            startedAt: latest.createdAt,
+            completedAt: latest.updatedAt,
+            status: latest.status as any,
+            integrityResult: {
+              ...demoVerificationRun.integrityResult!,
+              overallScore: latest.integrityHealth,
+              overallRisk: latest.integrityHealth >= 80 ? 'LOW' : (latest.integrityHealth >= 60 ? 'MEDIUM' : 'CRITICAL'),
+              decision: latest.decision as any,
+              timestamp: latest.updatedAt,
+            },
+            dataset: demoVerificationRun.dataset ? {
+              ...demoVerificationRun.dataset,
+              totalSamples: latest.totalFiles,
+              validSamples: latest.verifiedCleanFiles,
+              suspiciousSamples: latest.exactDuplicates + latest.nearDuplicates + latest.malfunctionData,
+            } : undefined,
+            findings: latest.findingsData && latest.findingsData.length > 0 ? (latest.findingsData as any) : demoVerificationRun.findings,
+          };
+          dispatch({ type: 'SET_VERIFICATION', payload: mappedRun });
+        }
+      } catch (err) {
+        console.warn('[AssuranceContext] Could not sync latest verification:', err);
+      }
+    }
+
+    if (user) {
+      syncActiveVerification();
+    }
+    return () => { isMounted = false; };
+  }, [user]);
 
   // Initialize cloud database and subscribe to real-time updates on mount
   useEffect(() => {
