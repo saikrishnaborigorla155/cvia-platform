@@ -4,7 +4,7 @@
 
 import type { FileAnalysisResult } from './fileHasher';
 import { computeHammingDistance } from './fileHasher';
-import { supabase, SESSION_ID } from '../lib/supabaseClient';
+import { supabase, SESSION_ID, isSupabaseConfigured } from '../lib/supabaseClient';
 
 // ─────────────────────────────────────────────────────────
 // TYPES
@@ -216,6 +216,13 @@ export async function initializeDatabase(): Promise<void> {
   if (_initPromise) return _initPromise;
 
   _initPromise = (async () => {
+    if (!isSupabaseConfigured) {
+      console.info('[CVIA DB] Supabase not configured. Operating in air-gapped baseline mode.');
+      _initialized = true;
+      _readyListeners.splice(0).forEach(cb => cb());
+      return;
+    }
+
     try {
       const [assetsResult, historyResult] = await Promise.all([
         supabase
@@ -262,28 +269,74 @@ export async function initializeDatabase(): Promise<void> {
   return _initPromise;
 }
 
+// ─────────────────────────────────────────────────────────
+// REALTIME CHANNEL MULTIPLEXER (Singleton Channel)
+// ─────────────────────────────────────────────────────────
+
+const _assetChangeListeners: Array<(assets: StoredDatabaseAsset[]) => void> = [];
+let _realtimeChannel: ReturnType<typeof supabase.channel> | null = null;
+let _isChannelSubscribed = false;
+
+function ensureRealtimeChannel() {
+  if (!isSupabaseConfigured || _realtimeChannel) return;
+
+  try {
+    _realtimeChannel = supabase
+      .channel('cvia_assets_realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'database_assets' },
+        (payload) => {
+          try {
+            const newAsset = mapRow(payload.new as Record<string, unknown>);
+            // Only add if not already in cache
+            if (!_assetsCache.some(a => a.assetId === newAsset.assetId)) {
+              _assetsCache = [newAsset, ..._assetsCache];
+              const snapshot = [..._assetsCache];
+              _assetChangeListeners.forEach(cb => {
+                try {
+                  cb(snapshot);
+                } catch (e) {
+                  console.error('[CVIA DB] Error in asset change listener:', e);
+                }
+              });
+            }
+          } catch (err) {
+            console.error('[CVIA DB] Error mapping realtime asset row:', err);
+          }
+        }
+      );
+
+    if (!_isChannelSubscribed) {
+      _isChannelSubscribed = true;
+      _realtimeChannel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.info('[CVIA DB] ✓ Real-time postgres_changes channel connected');
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('[CVIA DB] Real-time subscription setup encountered error:', err);
+  }
+}
+
 /**
- * Subscribe to real-time asset changes (updates cache live when other users enroll)
+ * Subscribe to real-time asset changes (updates cache live when other users enroll).
+ * Multiplexed safely: components can subscribe/unsubscribe without throwing
+ * "cannot add callbacks after subscribe" or removing the channel for other components.
  */
 export function subscribeToAssetChanges(onUpdate: (assets: StoredDatabaseAsset[]) => void): () => void {
-  const channel = supabase
-    .channel('cvia_assets_realtime')
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'database_assets' },
-      (payload) => {
-        const newAsset = mapRow(payload.new as Record<string, unknown>);
-        // Only add if not already in cache
-        if (!_assetsCache.some(a => a.assetId === newAsset.assetId)) {
-          _assetsCache = [newAsset, ..._assetsCache];
-          onUpdate([..._assetsCache]);
-        }
-      }
-    )
-    .subscribe();
+  _assetChangeListeners.push(onUpdate);
+  ensureRealtimeChannel();
 
-  return () => { supabase.removeChannel(channel); };
+  return () => {
+    const idx = _assetChangeListeners.indexOf(onUpdate);
+    if (idx !== -1) {
+      _assetChangeListeners.splice(idx, 1);
+    }
+  };
 }
+
 
 // ─────────────────────────────────────────────────────────
 // SYNCHRONOUS READ FUNCTIONS (use in-memory cache)
@@ -518,16 +571,18 @@ export async function recordIngestedFile(analysis: FileAnalysisResult): Promise<
   _historyCache = [record, ..._historyCache.slice(0, 499)];
 
   // Push to Supabase in background
-  supabase.from('ingest_history').insert({
-    file_name:      record.fileName,
-    sha256:         record.sha256,
-    perceptual_hash: record.perceptualHash,
-    file_size:      record.fileSize,
-    ingested_at:    record.timestamp,
-    session_id:     SESSION_ID,
-  }).then(({ error }) => {
-    if (error) console.warn('[CVIA DB] Failed to push ingest history:', error.message);
-  });
+  if (isSupabaseConfigured) {
+    supabase.from('ingest_history').insert({
+      file_name:      record.fileName,
+      sha256:         record.sha256,
+      perceptual_hash: record.perceptualHash,
+      file_size:      record.fileSize,
+      ingested_at:    record.timestamp,
+      session_id:     SESSION_ID,
+    }).then(({ error }) => {
+      if (error) console.warn('[CVIA DB] Failed to push ingest history:', error.message);
+    });
+  }
 }
 
 /** Enrolls a new asset into the cloud database */
@@ -573,27 +628,31 @@ export async function storeAssetInDatabase(
   // Update local cache immediately (optimistic update)
   _assetsCache = [newAsset, ..._assetsCache];
 
-  // Push to Supabase
-  const { error } = await supabase.from('database_assets').insert({
-    asset_id:         newAsset.assetId,
-    name:             newAsset.name,
-    type:             newAsset.type,
-    sha256:           newAsset.sha256,
-    perceptual_hash:  newAsset.perceptualHash,
-    file_size:        newAsset.fileSize,
-    stored_at:        newAsset.storedAt,
-    contributor_id:   newAsset.contributorId,
-    contributor_name: newAsset.contributorName,
-    provenance_block: newAsset.provenanceBlock,
-    status:           newAsset.status,
-    metadata:         newAsset.metadata,
-    preview_url:      newAsset.previewUrl,
-  });
+  // Push to Supabase if configured
+  if (isSupabaseConfigured) {
+    const { error } = await supabase.from('database_assets').insert({
+      asset_id:         newAsset.assetId,
+      name:             newAsset.name,
+      type:             newAsset.type,
+      sha256:           newAsset.sha256,
+      perceptual_hash:  newAsset.perceptualHash,
+      file_size:        newAsset.fileSize,
+      stored_at:        newAsset.storedAt,
+      contributor_id:   newAsset.contributorId,
+      contributor_name: newAsset.contributorName,
+      provenance_block: newAsset.provenanceBlock,
+      status:           newAsset.status,
+      metadata:         newAsset.metadata,
+      preview_url:      newAsset.previewUrl,
+    });
 
-  if (error) {
-    console.error('[CVIA DB] Failed to store asset in Supabase:', error.message);
+    if (error) {
+      console.error('[CVIA DB] Failed to store asset in Supabase:', error.message);
+    } else {
+      console.info(`[CVIA DB] ✓ Asset "${newAsset.name}" enrolled in cloud database`);
+    }
   } else {
-    console.info(`[CVIA DB] ✓ Asset "${newAsset.name}" enrolled in cloud database`);
+    console.info(`[CVIA DB] ✓ Asset "${newAsset.name}" enrolled in local air-gapped cache`);
   }
 
   // Also record in ingest history

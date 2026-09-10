@@ -4,6 +4,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AssuranceProvider } from './context/AssuranceContext';
 import { AppLayout } from './components/layout/AppLayout';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 // Pages
 import { Landing } from './pages/Landing';
@@ -19,9 +20,10 @@ import { Audit } from './pages/Audit';
 
 export default function App() {
   return (
-    <AssuranceProvider>
-      <BrowserRouter>
-        <Routes>
+    <ErrorBoundary>
+      <AssuranceProvider>
+        <BrowserRouter>
+          <Routes>
           {/* Landing page — no layout shell */}
           <Route path="/" element={<Landing />} />
 
@@ -42,5 +44,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AssuranceProvider>
-  );
+  </ErrorBoundary>
+);
 }

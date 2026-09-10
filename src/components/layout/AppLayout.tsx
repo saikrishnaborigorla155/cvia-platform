@@ -4,6 +4,7 @@ import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { useAssurance } from '../../context/AssuranceContext';
+import { ErrorBoundary } from '../ui/ErrorBoundary';
 
 export function AppLayout() {
   const { state } = useAssurance();
@@ -19,7 +20,9 @@ export function AppLayout() {
           verificationId={v?.verificationId}
         />
         <main className="page-content" id="main-content" tabIndex={-1}>
-          <Outlet />
+          <ErrorBoundary fallbackTitle="Verification temporarily unavailable">
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

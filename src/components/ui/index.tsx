@@ -216,6 +216,13 @@ interface HashDisplayProps {
 }
 
 export function HashDisplay({ hash, maxLength = 42 }: HashDisplayProps) {
+  if (!hash) {
+    return (
+      <span className="hash-display" title="No hash available">
+        <span className="hash-value">—</span>
+      </span>
+    );
+  }
   const display = hash.length > maxLength ? `${hash.slice(0, maxLength)}…` : hash;
   return (
     <span className="hash-display" title={hash}>
@@ -393,3 +400,6 @@ export function SectionHeader({ title, description, actions, badge }: SectionHea
     </div>
   );
 }
+
+export { ErrorBoundary } from './ErrorBoundary';
+
