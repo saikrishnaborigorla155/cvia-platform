@@ -1,8 +1,8 @@
 // API Controller — /api/assets
 // Handles asset storage, retrieval, and cryptographic audits for authenticated operators
 
-import { authenticateRequest } from '../src/server/authService.ts';
-import { getUserAssets, enrollUserAsset, runAssetAudit } from '../src/server/assetService.ts';
+import { authenticateRequest } from '../src/server/authService';
+import { getUserAssets, enrollUserAsset, runAssetAudit } from '../src/server/assetService';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Content-Type', 'application/json');

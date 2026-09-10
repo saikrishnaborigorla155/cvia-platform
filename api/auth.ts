@@ -1,7 +1,7 @@
 // API Controller — /api/auth
 // Handles operator login, registration, and session identity
 
-import { authenticateRequest, loginOperator, registerOperator, PRESET_OPERATORS } from '../src/server/authService.ts';
+import { authenticateRequest, loginOperator, registerOperator, PRESET_OPERATORS } from '../src/server/authService';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Content-Type', 'application/json');

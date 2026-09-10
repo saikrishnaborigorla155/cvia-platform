@@ -5,8 +5,9 @@ import { createClient } from '@supabase/supabase-js';
 const FALLBACK_SUPABASE_URL = 'https://puipneqpnowkvlwuebhd.supabase.co';
 const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1aXBuZXFwbm93a3Zsd3VlYmhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5NjQ1MjcsImV4cCI6MjEwNDU0MDUyN30.A0z1sMfXFnVspN1wwQr_r49G0LFDU-bHw_2Repbx4Sc';
 
-const rawUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() || FALLBACK_SUPABASE_URL;
-const rawKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || FALLBACK_SUPABASE_ANON_KEY;
+const metaEnv = (import.meta as any)?.env || (globalThis as any).process?.env || {};
+const rawUrl = (metaEnv.VITE_SUPABASE_URL as string | undefined)?.trim() || FALLBACK_SUPABASE_URL;
+const rawKey = (metaEnv.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() || FALLBACK_SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = Boolean(rawUrl && rawKey && rawUrl.startsWith('http'));
 

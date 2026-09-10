@@ -1,13 +1,13 @@
 // API Controller — /api/verifications
 // Manages persistent verification lifecycles with user data isolation
 
-import { authenticateRequest } from '../src/server/authService.ts';
+import { authenticateRequest } from '../src/server/authService';
 import {
   getLatestVerification,
   getVerificationsByUser,
   getVerificationById,
   createVerificationRun
-} from '../src/server/verificationService.ts';
+} from '../src/server/verificationService';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Content-Type', 'application/json');

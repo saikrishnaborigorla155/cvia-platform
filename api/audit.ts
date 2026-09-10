@@ -1,8 +1,8 @@
 // API Controller — /api/audit
 // Returns user-isolated immutable audit logs and hash chains
 
-import { authenticateRequest } from '../src/server/authService.ts';
-import { getUserAuditTrail, appendAuditEvent } from '../src/server/auditService.ts';
+import { authenticateRequest } from '../src/server/authService';
+import { getUserAuditTrail, appendAuditEvent } from '../src/server/auditService';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Content-Type', 'application/json');
