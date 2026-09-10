@@ -29,6 +29,9 @@ import {
   getLocalDatabase, resetDatabaseToBaseline, auditAllDatabaseAssets,
   recordIngestedFile, onDatabaseReady, subscribeToAssetChanges
 } from '../services/cviaDatabase';
+import { useAuth } from '../context/AuthContext';
+import { fetchLatestVerificationApi, createVerificationRunApi } from '../lib/api/verificationApi';
+import { enrollAssetApi } from '../lib/api/assetsApi';
 
 const STAGES: VerificationStage[] = [
   { stageId: 'S01', label: 'Preparing Artifacts & File Hashes', status: 'pending' },
@@ -64,6 +67,7 @@ type ViewCategory = 'EXACT_DUPLICATES' | 'NEAR_DUPLICATES' | 'MALFUNCTION' | 'CL
 
 export function Verify() {
   const { setVerification, enrollStoredAsset } = useAssurance();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -76,6 +80,8 @@ export function Verify() {
   // Dedicated Database Audit Report State
   const [auditReport, setAuditReport] = useState<DatabaseAuditReport | null>(null);
   const [isAuditingDb, setIsAuditingDb] = useState(false);
+  const [isLoadingLatest, setIsLoadingLatest] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
   const [showFlaggedDetails, setShowFlaggedDetails] = useState(true);
 
   // Deep View-Level Inspection Modal State
@@ -101,12 +107,45 @@ export function Verify() {
     setDbState(getLocalDatabase());
   };
 
-  // Sync dbState with Supabase: refresh once init finishes AND on real-time updates
-  // This ensures every user on every machine sees the same shared data values.
+  // Fetch persistent stored verification for the authenticated operator
+  const loadStoredVerification = useCallback(async () => {
+    setIsLoadingLatest(true);
+    setApiError(null);
+    try {
+      const latest = await fetchLatestVerificationApi();
+      if (latest) {
+        setAuditReport({
+          totalFiles: latest.totalFiles,
+          totalExactDuplicates: latest.exactDuplicates,
+          totalNearDuplicates: latest.nearDuplicates,
+          totalMalfunctionFiles: latest.malfunctionData,
+          totalVerifiedClean: latest.verifiedCleanFiles,
+          totalQuarantined: latest.malfunctionData,
+          totalHighRiskContributors: latest.highRiskContributors,
+          overallHealthScore: latest.integrityHealth,
+          auditedAt: latest.updatedAt,
+          flaggedItems: latest.flaggedItems,
+        });
+      } else {
+        // Operator has no prior verifications: calculate clean initial state
+        const initialReport = auditAllDatabaseAssets();
+        setAuditReport(initialReport);
+      }
+    } catch (err: any) {
+      console.error('[CVIA Frontend] Error loading stored verification:', err);
+      setApiError(err?.message || 'Unable to retrieve verification records');
+    } finally {
+      setIsLoadingLatest(false);
+    }
+  }, []);
+
   useEffect(() => {
-    // Fire once when the async cloud init completes
+    loadStoredVerification();
+  }, [user, loadStoredVerification]);
+
+  // Sync dbState with Supabase: refresh once init finishes AND on real-time updates
+  useEffect(() => {
     const unsubReady = onDatabaseReady(refreshDb);
-    // Fire on every real-time INSERT from other sessions
     const unsubLive = subscribeToAssetChanges(() => refreshDb());
     return () => {
       unsubReady();
@@ -115,14 +154,33 @@ export function Verify() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Run audit on all database-stored files + active files
-  const handleAuditDatabase = () => {
+  // Run audit and create persistent verification on backend
+  const handleAuditDatabase = async () => {
     setIsAuditingDb(true);
-    setTimeout(() => {
-      const report = auditAllDatabaseAssets();
-      setAuditReport(report);
+    setApiError(null);
+    try {
+      const newVer = await createVerificationRunApi();
+      if (newVer) {
+        setAuditReport({
+          totalFiles: newVer.totalFiles,
+          totalExactDuplicates: newVer.exactDuplicates,
+          totalNearDuplicates: newVer.nearDuplicates,
+          totalMalfunctionFiles: newVer.malfunctionData,
+          totalVerifiedClean: newVer.verifiedCleanFiles,
+          totalQuarantined: newVer.malfunctionData,
+          totalHighRiskContributors: newVer.highRiskContributors,
+          overallHealthScore: newVer.integrityHealth,
+          auditedAt: newVer.updatedAt,
+          flaggedItems: newVer.flaggedItems,
+        });
+        refreshDb();
+      }
+    } catch (err: any) {
+      console.error('[CVIA Frontend] Audit execution error:', err);
+      setApiError(err?.message || 'Verification audit could not be completed');
+    } finally {
       setIsAuditingDb(false);
-    }, 450);
+    }
   };
 
   // Handle actual file manager input with batch-level duplicate awareness
@@ -223,6 +281,12 @@ export function Verify() {
     const storedStatus = item.comparison.riskLevel === 'CRITICAL' ? 'QUARANTINE' : (item.comparison.riskLevel === 'HIGH' ? 'REVIEW' : 'VERIFIED');
     const stored = await storeAssetInDatabase(item.fileMeta, selectedContributor, undefined, storedStatus);
 
+    try {
+      await enrollAssetApi(item.fileMeta, selectedContributor);
+    } catch (e) {
+      console.warn('[CVIA Frontend] Backend enroll asset sync:', e);
+    }
+
     // Enroll into global AssuranceContext and audit log
     enrollStoredAsset(stored);
 
@@ -270,7 +334,30 @@ export function Verify() {
       updateStage(i, 'done');
     }
 
-    setVerification(demoVerificationRun);
+    try {
+      const newVer = await createVerificationRunApi();
+      if (newVer) {
+        setVerification(demoVerificationRun);
+        setAuditReport({
+          totalFiles: newVer.totalFiles,
+          totalExactDuplicates: newVer.exactDuplicates,
+          totalNearDuplicates: newVer.nearDuplicates,
+          totalMalfunctionFiles: newVer.malfunctionData,
+          totalVerifiedClean: newVer.verifiedCleanFiles,
+          totalQuarantined: newVer.malfunctionData,
+          totalHighRiskContributors: newVer.highRiskContributors,
+          overallHealthScore: newVer.integrityHealth,
+          auditedAt: newVer.updatedAt,
+          flaggedItems: newVer.flaggedItems,
+        });
+      } else {
+        setVerification(demoVerificationRun);
+      }
+    } catch (err) {
+      console.warn('[CVIA Frontend] Verification run API error, using baseline fallback:', err);
+      setVerification(demoVerificationRun);
+    }
+
     setRunning(false);
     setComplete(true);
   }, [setVerification]);
@@ -332,6 +419,54 @@ export function Verify() {
           </div>
         }
       />
+
+      {/* ERROR FALLBACK BANNER */}
+      {apiError && (
+        <Card style={{ border: '1px solid var(--color-critical-border)', background: 'rgba(239, 68, 68, 0.08)', marginBottom: 16 }}>
+          <CardBody>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <AlertTriangle size={20} style={{ color: 'var(--color-critical)' }} />
+                <div>
+                  <div style={{ fontWeight: 600, color: 'var(--color-critical)', fontSize: 14 }}>
+                    Verification could not be completed
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                    {apiError}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button variant="secondary" size="sm" onClick={() => loadStoredVerification()}>
+                  Retry Verification
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+                  Back to Dashboard
+                </Button>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* TELEMETRY LOADING STATE */}
+      {isLoadingLatest && !auditReport && (
+        <div style={{
+          padding: '16px 20px',
+          borderRadius: 8,
+          background: 'rgba(15, 23, 42, 0.6)',
+          border: '1px solid var(--color-border)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: 16
+        }}>
+          <Loader size={18} style={{ color: 'var(--color-brand-primary)', animation: 'spin 0.7s linear infinite' }} />
+          <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
+            Retrieving persistent verification records from secure database for {user?.unitCode || user?.organization || 'Operator'}…
+          </span>
+        </div>
+      )}
 
       {/* DEDICATED VERIFICATION & AUDIT BUTTON STATION */}
       <Card style={{ border: '1px solid var(--color-brand-primary)', background: 'linear-gradient(180deg, rgba(37, 99, 235, 0.05) 0%, rgba(15, 23, 42, 0.4) 100%)' }}>

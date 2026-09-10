@@ -2,6 +2,7 @@
 // SIH26228 · Ministry of Defence / DGIS
 
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
 import { AssuranceProvider } from './context/AssuranceContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
@@ -21,29 +22,31 @@ import { Audit } from './pages/Audit';
 export default function App() {
   return (
     <ErrorBoundary>
-      <AssuranceProvider>
-        <BrowserRouter>
-          <Routes>
-          {/* Landing page — no layout shell */}
-          <Route path="/" element={<Landing />} />
+      <AuthProvider>
+        <AssuranceProvider>
+          <BrowserRouter>
+            <Routes>
+              {/* Landing page — no layout shell */}
+              <Route path="/" element={<Landing />} />
 
-          {/* All other pages use AppLayout (sidebar + topbar) */}
-          <Route element={<AppLayout />}>
-            <Route path="/console" element={<Console />} />
-            <Route path="/verify" element={<Verify />} />
-            <Route path="/data" element={<DataIntegrity />} />
-            <Route path="/model" element={<ModelIntegrity />} />
-            <Route path="/provenance" element={<Provenance />} />
-            <Route path="/inference" element={<InferenceIntegrity />} />
-            <Route path="/drift" element={<DistributionShift />} />
-            <Route path="/findings" element={<Findings />} />
-            <Route path="/audit" element={<Audit />} />
-            {/* Redirect unknown paths to console */}
-            <Route path="*" element={<Navigate to="/console" replace />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </AssuranceProvider>
-  </ErrorBoundary>
-);
+              {/* All other pages use AppLayout (sidebar + topbar) */}
+              <Route element={<AppLayout />}>
+                <Route path="/console" element={<Console />} />
+                <Route path="/verify" element={<Verify />} />
+                <Route path="/data" element={<DataIntegrity />} />
+                <Route path="/model" element={<ModelIntegrity />} />
+                <Route path="/provenance" element={<Provenance />} />
+                <Route path="/inference" element={<InferenceIntegrity />} />
+                <Route path="/drift" element={<DistributionShift />} />
+                <Route path="/findings" element={<Findings />} />
+                <Route path="/audit" element={<Audit />} />
+                {/* Redirect unknown paths to console */}
+                <Route path="*" element={<Navigate to="/console" replace />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </AssuranceProvider>
+      </AuthProvider>
+    </ErrorBoundary>
+  );
 }

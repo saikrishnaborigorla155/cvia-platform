@@ -2,6 +2,7 @@
 
 import { Wifi, CheckCircle2 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 
 const PAGE_META: Record<string, { title: string; desc: string }> = {
   '/': { title: 'CVIA Platform', desc: 'Trustworthy Computer Vision Integrity Assurance' },
@@ -24,6 +25,7 @@ interface TopbarProps {
 
 export function Topbar({ datasetId, modelId, verificationId }: TopbarProps) {
   const location = useLocation();
+  const { user, availableOperators, switchOperator } = useAuth();
   const meta = PAGE_META[location.pathname] || PAGE_META['/console'];
 
   return (
@@ -62,6 +64,37 @@ export function Topbar({ datasetId, modelId, verificationId }: TopbarProps) {
         {(datasetId || modelId || verificationId) && (
           <div style={{ width: 1, height: 28, background: 'var(--color-border)', flexShrink: 0 }} />
         )}
+
+        {/* Operator Identity Badge & Switcher */}
+        {user && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)', fontWeight: 500 }}>Operator:</span>
+            <select
+              value={user.email}
+              onChange={(e) => switchOperator(e.target.value)}
+              style={{
+                background: 'var(--color-bg-secondary)',
+                color: 'var(--color-text-primary)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 4,
+                padding: '3px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+              title="Switch military command operator (Multi-user data isolation test)"
+            >
+              {availableOperators.map(op => (
+                <option key={op.email} value={op.email}>
+                  {op.fullName} · {op.unitCode} ({op.role})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div style={{ width: 1, height: 28, background: 'var(--color-border)', flexShrink: 0 }} />
 
         {/* Status badges */}
         <div className="topbar-badge offline" role="status" aria-label="System is in offline mode">

@@ -63,10 +63,11 @@ function reducer(state: CVIAState, action: Action): CVIAState {
       const asset = action.payload;
       const lastAudit = state.auditTrail[state.auditTrail.length - 1];
       const prevHash = lastAudit?.eventHash || 'sha256:0000000000000000000000000000000000000000000000000000000000000000';
-      const eventHash = `sha256:${Math.random().toString(16).substring(2, 10)}${asset.sha256.substring(7, 23)}`;
+      const eventHash = `sha256:${asset.sha256.substring(7, 23)}${asset.assetId.slice(-8)}`;
 
+      const shortId = asset.assetId.replace(/[^a-zA-Z0-9]/g, '').slice(-4).padStart(4, '0');
       const newAudit: AuditEvent = {
-        eventId: `AUD-${Math.floor(1000 + Math.random() * 9000)}`,
+        eventId: `AUD-${shortId}`,
         timestamp: asset.storedAt,
         action: asset.type === 'MODEL_WEIGHTS' ? 'MODEL_VERIFIED' : 'DATASET_IMPORTED',
         asset: `${asset.type}: ${asset.name}`,
@@ -95,7 +96,7 @@ function reducer(state: CVIAState, action: Action): CVIAState {
               hash: asset.sha256,
               samples: [
                 {
-                  sampleId: `IMG-${Math.floor(1000 + Math.random() * 9000)}`,
+                  sampleId: `IMG-${shortId}`,
                   filename: asset.name,
                   contributorId: asset.contributorId,
                   label: 'vehicle / target',
@@ -110,14 +111,14 @@ function reducer(state: CVIAState, action: Action): CVIAState {
 
             // Append duplicate finding
             newFindings.unshift({
-              findingId: `FND-${Math.floor(1000 + Math.random() * 9000)}`,
+              findingId: `FND-${shortId}`,
               title: `Duplicate Dataset Image Enrolled: ${asset.name}`,
               affectedAsset: asset.name,
               attackType: 'duplicate_flood',
               reason: `Uploaded image shares identical SHA-256 / perceptual hash with pre-existing records. Risk of duplicate flooding or synthetic inflation.`,
               evidence: [
                 {
-                  evidenceId: `EV-${Math.floor(100 + Math.random() * 900)}`,
+                  evidenceId: `EV-${shortId}`,
                   type: 'HASH_COLLISION',
                   description: 'Exact SHA-256 hash collision with registered sample',
                   value: asset.sha256,
@@ -154,14 +155,14 @@ function reducer(state: CVIAState, action: Action): CVIAState {
 
           if (!isPassed) {
             newFindings.unshift({
-              findingId: `FND-${Math.floor(1000 + Math.random() * 9000)}`,
+              findingId: `FND-M${shortId}`,
               title: `Model Checkpoint Integrity Failure (${asset.name})`,
               affectedAsset: asset.name,
               attackType: 'model_modification',
               reason: `SHA-256 checksum (${asset.sha256.substring(0, 18)}...) does not match certified baseline registry. Possible weight tampering, backdoor injection, or unauthorized replacement.`,
               evidence: [
                 {
-                  evidenceId: `EV-${Math.floor(100 + Math.random() * 900)}`,
+                  evidenceId: `EV-M${shortId}`,
                   type: 'HASH_MISMATCH',
                   description: 'SHA-256 mismatch against certified baseline checkpoint',
                   value: asset.sha256,
